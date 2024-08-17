@@ -32,7 +32,7 @@ from service import app
 from service.common import status
 from service.models import db, init_db, Product
 from tests.factories import ProductFactory
-
+from urllib.parse import quote_plus
 # Disable all but critical errors during normal test run
 # uncomment for debugging failing tests
 # logging.disable(logging.CRITICAL)
@@ -166,6 +166,78 @@ class TestProductRoutes(TestCase):
     #
     # ADD YOUR TEST CASES HERE
     #
+    def test_get_product(self):
+        """It should return a product"""
+        test_product = self._create_products()[0]
+        response = self.client.get(f"{BASE_URL}/{test_product.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        self.ensure_product_equal(data, test_product)
+
+    def test_get_product_not_found(self):
+        """It should return product not found"""
+        response = self.client.get(f"{BASE_URL}/0")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+    def test_update_product(self):
+        """It should update a product"""
+        test_product = self._create_products()[0]
+        test_product.name = "testing"
+        test_product.price = Decimal(123.4)
+        response = self.client.put(f"{BASE_URL}/{test_product.id}", json=test_product.serialize())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # retrieve the product and verify
+        response = self.client.get(f"{BASE_URL}/{test_product.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        logging.debug("get json after updating:%s", data)
+        self.ensure_product_equal(data, test_product)
+
+    def test_update_product_without_invalid_id(self):
+        """It should return product not found"""
+        test_product = self._create_products()[0]
+        test_product.name = "testing"
+        test_product.id = 0
+        response = self.client.put(f"{BASE_URL}/{test_product.id}", json=test_product.serialize())
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_product(self):
+        """It should delete a product"""
+        test_product = self._create_products()[0]
+        response = self.client.delete(f"{BASE_URL}/{test_product.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        # retrieve after deleting
+        response = self.client.get(f"{BASE_URL}/{test_product.id}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_product_with_invalid_id(self):
+        """It should return product not found"""
+        #test_product = self._create_products()[0]
+        response = self.client.delete(f"{BASE_URL}/0")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_all_products(self):
+        """It should return a list of products"""
+        self._create_products(5)
+        response = self.client.get(BASE_URL)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        self.assertEqual(len(data), 5)
+
+    def test_query_by_name(self):
+        """It should query products by name"""
+        products = self._create_products(5)
+        test_name = products[0].name
+        name_count = len([product for product in products if product.name == test_name])
+        response = self.client.get(
+            BASE_URL, query_string=f"name={quote_plus(test_name)}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        self.assertEqual(len(data), name_count)
+        for product in data:
+            self.assertEqual(product["name"], test_name)
 
     ######################################################################
     # Utility functions
@@ -178,3 +250,11 @@ class TestProductRoutes(TestCase):
         data = response.get_json()
         # logging.debug("data = %s", data)
         return len(data)
+
+    def ensure_product_equal(self, product_dict, test_product):
+        """ensure that the product dict is equal to test product instance"""
+        self.assertEqual(product_dict["name"], test_product.name)
+        self.assertEqual(product_dict["description"], test_product.description)
+        self.assertEqual(Decimal(product_dict["price"]), test_product.price)
+        self.assertEqual(product_dict["available"], test_product.available)
+        self.assertEqual(product_dict["category"], test_product.category.name)
